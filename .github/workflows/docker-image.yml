@@ -22,9 +22,27 @@ jobs:
           latest=$(curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest | jq -r .tag_name)
           echo "version=${latest#v}" >> $GITHUB_OUTPUT
 
+      - name: Lowercase owner
+        id: owner
+        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Check if image exists on GHCR
+        run: |
+          TAG="${{ steps.caddy.outputs.version }}"
+          OWNER="${{ steps.owner.outputs.owner }}"
+          if gh api -H "Accept: application/vnd.github.v3+json" \
+                "/users/$OWNER/packages/container/caddy-coraza/versions" \
+                | jq -r '.[].metadata.container.tags[]?' \
+                | grep -q "^$TAG$"; then
+            echo "Image ghcr.io/$OWNER/caddy-coraza:$TAG already exists. Skipping build."
+            exit 0
+          else
+            echo "Image does not exist. Proceeding with build."
+          fi
+
       - name: Build Docker image
         run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          OWNER="${{ steps.owner.outputs.owner }}"
           docker build \
             --build-arg CADDY_VERSION=${{ steps.caddy.outputs.version }} \
             -f Containerfile \
@@ -39,7 +57,7 @@ jobs:
 
       - name: Push Docker image
         run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          OWNER="${{ steps.owner.outputs.owner }}"
           docker push ghcr.io/$OWNER/caddy-coraza:${{ steps.caddy.outputs.version }}
           docker tag ghcr.io/$OWNER/caddy-coraza:${{ steps.caddy.outputs.version }} ghcr.io/$OWNER/caddy-coraza:latest
           docker push ghcr.io/$OWNER/caddy-coraza:latest
