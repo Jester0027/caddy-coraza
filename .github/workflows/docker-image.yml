@@ -70,6 +70,7 @@ jobs:
           COMBINED_TAG="$CADDY_TAG-$CORAZA_TAG"
 
           docker build \
+            -f Containerfile \
             --build-arg CADDY_VERSION=$CADDY_TAG \
             -t ghcr.io/$OWNER/$IMAGE:$COMBINED_TAG .
 
