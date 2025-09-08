@@ -67,7 +67,7 @@ jobs:
           IMAGE="caddy-coraza"
           CADDY_TAG="${{ steps.caddy.outputs.version }}"
           CORAZA_TAG="${{ steps.coraza.outputs.version }}"
-          COMBINED_TAG="$CADDY_TAG-$CORAZA_TAG"
+          COMBINED_TAG="$CADDY_TAG-coraza-$CORAZA_TAG"
 
           docker build \
             -f Containerfile \
