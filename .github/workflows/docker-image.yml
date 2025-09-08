@@ -1,20 +1,18 @@
 name: Build and Push Caddy+Coraza
 
 permissions:
-  packages: write
   contents: read
+  packages: write
 
 on:
   workflow_dispatch:
   schedule:
     - cron: "0 1 * * *"
 
-env:
-  GH_TOKEN: ${{ github.token }}
-
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -25,37 +23,55 @@ jobs:
           latest=$(curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest | jq -r .tag_name)
           echo "version=${latest#v}" >> $GITHUB_OUTPUT
 
+      - name: Get latest Coraza release
+        id: coraza
+        run: |
+          latest=$(curl -s https://api.github.com/repos/corazawaf/coraza-caddy/releases/latest | jq -r .tag_name)
+          echo "version=${latest#v}" >> $GITHUB_OUTPUT
+
       - name: Lowercase owner
         id: owner
-        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-
-      - name: Check if image exists on GHCR
         run: |
-          TAG="${{ steps.caddy.outputs.version }}"
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "owner=$OWNER" >> $GITHUB_OUTPUT
+
+      - name: Check if combined image exists on GHCR
+        id: check_rebuild
+        run: |
           OWNER="${{ steps.owner.outputs.owner }}"
-          EXISTS=$(gh api -H "Accept: application/vnd.github.v3+json" \
-                      "/users/$OWNER/packages/container/caddy-coraza/versions" \
-                      | jq -r '.[].metadata.container.tags[]?' \
-                      | grep "^$TAG$" || true)
-          if [ -n "$EXISTS" ]; then
+          IMAGE="caddy-coraza"
+          CADDY_TAG="${{ steps.caddy.outputs.version }}"
+          CORAZA_TAG="${{ steps.coraza.outputs.version }}"
+
+          EXISTING_TAGS=$(gh api -H "Accept: application/vnd.github.v3+json" \
+            "/users/$OWNER/packages/container/$IMAGE/versions" \
+            | jq -r '.[].metadata.container.tags[]?')
+
+          COMBINED_TAG="$CADDY_TAG-$CORAZA_TAG"
+
+          if echo "$EXISTING_TAGS" | grep -q "^$COMBINED_TAG$"; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Image ghcr.io/$OWNER/caddy-coraza:$TAG already exists. Skipping build."
+            echo "Image ghcr.io/$OWNER/$IMAGE:$COMBINED_TAG already exists. Skipping build."
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Image does not exist. Proceeding with build."
+            echo "No image yet for this Caddy+Coraza combination. Proceeding with build."
           fi
 
       - name: Build Docker image
-        if: steps.check_image.outputs.exists == 'false'
+        if: steps.check_rebuild.outputs.exists == 'false'
         run: |
           OWNER="${{ steps.owner.outputs.owner }}"
+          IMAGE="caddy-coraza"
+          CADDY_TAG="${{ steps.caddy.outputs.version }}"
+          CORAZA_TAG="${{ steps.coraza.outputs.version }}"
+          COMBINED_TAG="$CADDY_TAG-$CORAZA_TAG"
+
           docker build \
-            --build-arg CADDY_VERSION=${{ steps.caddy.outputs.version }} \
-            -f Containerfile \
-            -t ghcr.io/$OWNER/caddy-coraza:${{ steps.caddy.outputs.version }} .
+            --build-arg CADDY_VERSION=$CADDY_TAG \
+            -t ghcr.io/$OWNER/$IMAGE:$COMBINED_TAG .
 
       - name: Log in to GHCR
-        if: steps.check_image.outputs.exists == 'false'
+        if: steps.check_rebuild.outputs.exists == 'false'
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
@@ -63,9 +79,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push Docker image
-        if: steps.check_image.outputs.exists == 'false'
+        if: steps.check_rebuild.outputs.exists == 'false'
         run: |
           OWNER="${{ steps.owner.outputs.owner }}"
-          docker push ghcr.io/$OWNER/caddy-coraza:${{ steps.caddy.outputs.version }}
-          docker tag ghcr.io/$OWNER/caddy-coraza:${{ steps.caddy.outputs.version }} ghcr.io/$OWNER/caddy-coraza:latest
-          docker push ghcr.io/$OWNER/caddy-coraza:latest
+          IMAGE="caddy-coraza"
+          CADDY_TAG="${{ steps.caddy.outputs.version }}"
+          CORAZA_TAG="${{ steps.coraza.outputs.version }}"
+          COMBINED_TAG="$CADDY_TAG-coraza-$CORAZA_TAG"
+
+          docker push ghcr.io/$OWNER/$IMAGE:$COMBINED_TAG
+          docker tag ghcr.io/$OWNER/$IMAGE:$COMBINED_TAG ghcr.io/$OWNER/$IMAGE:latest
+          docker push ghcr.io/$OWNER/$IMAGE:latest
