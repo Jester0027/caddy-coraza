@@ -50,7 +50,7 @@ jobs:
             "/users/$OWNER/packages/container/$IMAGE/versions" \
             | jq -r '.[].metadata.container.tags[]?')
 
-          COMBINED_TAG="$CADDY_TAG-$CORAZA_TAG"
+          COMBINED_TAG="$CADDY_TAG-coraza-$CORAZA_TAG"
 
           if echo "$EXISTING_TAGS" | grep -q "^$COMBINED_TAG$"; then
             echo "exists=true" >> $GITHUB_OUTPUT
